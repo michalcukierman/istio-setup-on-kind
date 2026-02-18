@@ -35,9 +35,9 @@ ISTIOCTL ?= istioctl
 	touch .cluster2-cacerts.done
 
 .prepare.done:
-	echo fs.inotify.max_user_watches=655360 | sudo tee -a /etc/sysctl.conf
-	echo fs.inotify.max_user_instances=1280 | sudo tee -a /etc/sysctl.conf
-	sudo sysctl -p
+	# echo fs.inotify.max_user_watches=655360 | sudo tee -a /etc/sysctl.conf
+	# echo fs.inotify.max_user_instances=1280 | sudo tee -a /etc/sysctl.conf
+	# sudo sysctl -p
 	touch .prepare.done
 
 cluster1: kind1.yaml .cluster1-cacerts.done .kind-cloud-provider.done
@@ -90,8 +90,20 @@ connect-clusters:
 	while ! $(ISTIOCTL) create-remote-secret --server=https://$(shell docker inspect $(CLUSTER2)-control-plane | jq -r .[].NetworkSettings.Networks.kind.IPAddress):6443 --context=$(CTX_CLUSTER2) --name=$(CLUSTER2) ; do sleep 1 ; done
 	$(ISTIOCTL) create-remote-secret --server=https://$(shell docker inspect $(CLUSTER2)-control-plane | jq -r .[].NetworkSettings.Networks.kind.IPAddress):6443 --context=$(CTX_CLUSTER2) --name=$(CLUSTER2) | kubectl apply -f - --context=$(CTX_CLUSTER1)
 
+apply-manifest1:
+	kubectl config use-context $(CTX_CLUSTER1)
+	kubectl apply -f manifest1.yaml
+
+apply-manifest2:
+	kubectl config use-context $(CTX_CLUSTER2)
+	kubectl apply -f manifest2.yaml
+
+run-test:
+	kubectl config use-context $(CTX_CLUSTER2)
+	kubectl -n ns-c exec -it deploy/curl -- sh -lc 'for i in $$(seq 1 1000); do curl --keepalive-time 60 http://service-a.ns-a.svc.cluster.local >/dev/null; curl --keepalive-time 60 http://service-b.ns-b.svc.cluster.local >/dev/null; done'
+
 clean:
 	kind delete cluster --name $(CLUSTER1)
 	kind delete cluster --name $(CLUSTER2)
 
-setup: .prepare.done cluster1 cluster2 install-istio1 install-istio2 install-ew1 install-ew2 connect-clusters
+setup: .prepare.done cluster1 cluster2 install-istio1 install-istio2 install-ew1 install-ew2 connect-clusters apply-manifest1 apply-manifest2
