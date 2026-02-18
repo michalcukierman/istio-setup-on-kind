@@ -1,85 +1,190 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ns-a
+  name: prometheus-system
   labels:
     istio.io/dataplane-mode: ambient
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ns-b
+  name: loki-system
   labels:
     istio.io/dataplane-mode: ambient
 ---
+# -------------------------
+# Loki
+# -------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: loki-system
+data:
+  loki.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+
+    common:
+      path_prefix: /loki
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    storage_config:
+      filesystem:
+        directory: /loki/chunks
+
+    ingester:
+      wal:
+        dir: /loki/wal
+
+    compactor:
+      working_directory: /loki/compactor
+      retention_enabled: false
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-a
-  namespace: ns-a
+  name: loki
+  namespace: loki-system
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: nginx-a
+      app: loki
   template:
     metadata:
       labels:
-        app: nginx-a
+        app: loki
     spec:
       containers:
-        - name: nginx
-          image: nginx:1.27
+        - name: loki
+          image: grafana/loki:3.4.2
+          args: ["-config.file=/etc/loki/loki.yaml"]
           ports:
-            - containerPort: 80
+            - name: http
+              containerPort: 3100
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+              readOnly: true
+            - name: data
+              mountPath: /loki
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+            items:
+              - key: loki.yaml
+                path: loki.yaml
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: service-a
-  namespace: ns-a
+  name: loki
+  namespace: loki-system
   labels:
     istio.io/global: "true"
 spec:
   selector:
-    app: nginx-a
+    app: loki
   ports:
     - name: http
-      port: 80
-      targetPort: 80
+      port: 3100
+      targetPort: 3100
+---
+# -------------------------
+# Prometheus
+# -------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: prometheus-system
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      # OPTIONAL: scrape Loki metrics endpoint
+      - job_name: loki
+        metrics_path: /metrics
+        static_configs:
+          - targets: ["loki.loki-system.svc.cluster.local:3100"]
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-b
-  namespace: ns-b
+  name: prometheus
+  namespace: prometheus-system
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: nginx-b
+      app: prometheus
   template:
     metadata:
       labels:
-        app: nginx-b
+        app: prometheus
     spec:
       containers:
-        - name: nginx
-          image: nginx:1.27
+        - name: prometheus
+          image: prom/prometheus:v2.52.0
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--web.enable-lifecycle"
           ports:
-            - containerPort: 80
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+            items:
+              - key: prometheus.yml
+                path: prometheus.yml
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: service-b
-  namespace: ns-b
+  name: prometheus
+  namespace: prometheus-system
   labels:
     istio.io/global: "true"
 spec:
   selector:
-    app: nginx-b
+    app: prometheus
   ports:
     - name: http
-      port: 80
-      targetPort: 80
+      port: 9090
+      targetPort: 9090

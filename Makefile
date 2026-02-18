@@ -100,7 +100,7 @@ apply-manifest2:
 
 run-test:
 	kubectl config use-context $(CTX_CLUSTER2)
-	kubectl -n ns-c exec -it deploy/curl -- sh -lc 'for i in $$(seq 1 1000); do curl --keepalive-time 60 http://service-a.ns-a.svc.cluster.local >/dev/null; curl --keepalive-time 60 http://service-b.ns-b.svc.cluster.local >/dev/null; done'
+	kubectl -n ns-c exec -it deploy/curl -- sh -lc 'for i in $$(seq 1 1000); do curl http://prometheus.prometheus-system.svc.cluster.local:9090/-/ready >/dev/null; curl http://loki.loki-system.svc.cluster.local:3100/ready >/dev/null; done'
 
 clean:
 	kind delete cluster --name $(CLUSTER1)
