@@ -1,0 +1,22 @@
+apiVersion: insall.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: ambient
+  components:
+    pilot:
+      k8s:
+        env:
+          - name: AMBIENT_ENABLE_MULTI_NETWORK
+            value: "true"
+          - name: AMBIENT_ENABLE_BAGGAGE
+            value: "true"
+  meshConfig:
+    accessLogFile: /dev/stdout
+    defaultConfig:
+      logLevel: debug
+  values:
+    global:
+      meshID: mesh1
+      multiCluster:
+        clusterName: cluster2
+      network: network2
